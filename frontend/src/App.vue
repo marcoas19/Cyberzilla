@@ -144,6 +144,7 @@ async function startScan() {
 
 // Simulated defensive response.
 // This does NOT block IP addresses or change firewall rules.
+
 async function atomicBreath(threat) {
   if (
     scanning.value ||
@@ -157,13 +158,26 @@ async function atomicBreath(threat) {
   systemStatus.value = 'ATOMIC BREATH'
   errorMessage.value = ''
 
+  // Simulated defensive response.
+  // No real IP addresses are blocked.
   await delay(2500)
 
   threat.status = 'NEUTRALIZED (SIMULATED)'
   threat.response = 'SIMULATED'
 
-  mascotState.value = 'defeated'
-  systemStatus.value = 'THREAT NEUTRALIZED'
+  // Check whether other alerts remain active.
+  const remainingThreats = threats.value.filter(
+    item => item.status === 'DETECTED'
+  ).length
+
+  if (remainingThreats > 0) {
+    mascotState.value = 'monitoring'
+    systemStatus.value = 'THREAT DETECTED'
+  } else {
+    mascotState.value = 'defeated'
+    systemStatus.value = 'THREATS NEUTRALIZED (SIMULATED)'
+  }
+
   scanning.value = false
 }
 
