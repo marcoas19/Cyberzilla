@@ -291,6 +291,70 @@ function resetDashboard() {
           class="atomic-button"
           :disabled="scanning || threat.status !== 'DETECTED'"
           @click="atomicBreath(threat)"
+
+        
+<!-- DETECTION EVIDENCE -->
+<details class="evidence-panel">
+  <summary>
+    🔍 VIEW EVIDENCE
+    <span class="evidence-count">
+      {{ threat.evidence?.length ?? 0 }} events
+    </span>
+  </summary>
+
+  <div class="evidence-content">
+    <p class="evidence-description">
+      {{ threat.description }}
+    </p>
+
+    <div class="evidence-times">
+      <p>
+        <strong>First seen:</strong>
+        {{ threat.first_seen }}
+      </p>
+      <p>
+        <strong>Last seen:</strong>
+        {{ threat.last_seen }}
+      </p>
+    </div>
+
+    <div class="evidence-table-wrapper">
+      <table class="evidence-table">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Source IP</th>
+            <th>Username</th>
+            <th>Event Type</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr
+            v-for="(event, index) in threat.evidence ?? []"
+            :key="index"
+          >
+            <td>{{ event.timestamp }}</td>
+            <td>{{ event.source_ip }}</td>
+            <td>{{ event.username }}</td>
+            <td>
+              <span class="event-badge">
+                {{ event.event_type }}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p
+      v-if="!threat.evidence?.length"
+      class="no-evidence"
+    >
+      No supporting events available.
+    </p>
+  </div>
+</details>
         >
           ☢️ ATOMIC BREATH
         </button>
@@ -560,5 +624,104 @@ footer {
   .mascot-image {
     animation: none !important;
   }
+}
+
+/* CYBERZILLA — THREAT EVIDENCE */
+
+.evidence-panel {
+  margin-top: 20px;
+  margin-bottom: 15px;
+  border: 1px solid #34516d;
+  border-radius: 10px;
+  background: #101d2e;
+  overflow: hidden;
+}
+
+.evidence-panel summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  cursor: pointer;
+  color: #70deff;
+  font-weight: bold;
+  list-style: none;
+}
+
+.evidence-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.evidence-panel summary:hover {
+  background: #1b344c;
+}
+
+.evidence-count {
+  color: #9eb7ca;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.evidence-content {
+  padding: 18px;
+  border-top: 1px solid #34516d;
+}
+
+.evidence-description {
+  color: #d8eaf5;
+  line-height: 1.6;
+}
+
+.evidence-times {
+  color: #a8c0d2;
+  font-size: 13px;
+  margin: 16px 0;
+}
+
+.evidence-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.evidence-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.evidence-table th,
+.evidence-table td {
+  padding: 12px;
+  border-bottom: 1px solid #294057;
+  white-space: nowrap;
+}
+
+.evidence-table th {
+  color: #70deff;
+  background: #172c42;
+}
+
+.evidence-table td {
+  color: #dcecf7;
+}
+
+.evidence-table tbody tr:hover {
+  background: #1b344c;
+}
+
+.event-badge {
+  display: inline-block;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: #512b35;
+  color: #ffaaaa;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.no-evidence {
+  color: #9eb7ca;
 }
 </style>
