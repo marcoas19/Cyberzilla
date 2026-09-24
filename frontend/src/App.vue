@@ -1,16 +1,19 @@
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 
 // CYBERZILLA: ATOMIC DEFENSE SYSTEM
-// Version 0.4 - Mascot Integration
+// Version 0.5 — Python API + Threat Evidence Viewer
+
+const API_URL = 'http://127.0.0.1:8000'
 
 const systemStatus = ref('MONITORING')
 const mascotState = ref('monitoring')
-
 const scanning = ref(false)
 const threats = ref([])
 const scanCount = ref(0)
+const totalEvents = ref(0)
+const errorMessage = ref('')
 
 const mascotImages = {
   monitoring: '/mascots/godzilla-monitoring.png',
@@ -32,54 +35,49 @@ const currentMessage = computed(() => {
       return 'ATOMIC BREATH ACTIVATED!'
 
     case 'defeated':
-      return 'Threat neutralized!'
+      return 'Threat response completed!'
 
     default:
-      return threats.value.length > 0
+      if (systemStatus.value === 'SCAN FAILED') {
+        return 'Unable to complete the scan.'
+      }
+
+      return threats.value.some(
+        threat => threat.status === 'DETECTED'
+      )
         ? 'Suspicious activity detected!'
         : 'All systems secure.'
   }
 })
 
-function startScan() {
-  if (scanning.value) return
+const detectedThreats = computed(() => {
+  return threats.value.filter(
+    threat => threat.status === 'DETECTED'
+  ).length
+})
 
-  scanning.value = true
-  mascotState.value = 'scanning'
-  systemStatus.value = 'SCANNING'
-  threats.value = []
+function delay(milliseconds) {
+  return new Promise(resolve => {
+    setTimeout(resolve, milliseconds)
+  })
+}
 
-  // Demo scan using simulated security events.
-  // Python backend integration comes next.
-
-  setTimeout(() => {
-    scanning.value = false
-    scanCount.value++
-
-    threats.value = [
-      {
-        rule_id: 'CZ-001',
-        source_ip: '192.0.2.10',
-        rule_name: 'Repeated Failed Login Attempts',
-        severity: 'HIGH',
-        attempts: 5,
-        status: 'DETECTED'
-      }
-    ]
-
-    mascotState.value = 'monitoring'
+// Run the real Python detection engine
 async function startScan() {
   if (scanning.value) return
 
   scanning.value = true
   mascotState.value = 'scanning'
   systemStatus.value = 'SCANNING'
+  errorMessage.value = ''
+
+  // Clear previous results before the new scan
   threats.value = []
+  totalEvents.value = 0
 
   try {
-    // Send a scan request to our Python API
     const response = await fetch(
-      'http://127.0.0.1:8000/api/scan',
+      `${API_URL}/api/scan`,
       {
         method: 'POST'
       }
@@ -87,34 +85,45 @@ async function startScan() {
 
     if (!response.ok) {
       throw new Error(
-        `API returned status ${response.status}`
+        `Cyberzilla API returned HTTP ${response.status}`
       )
     }
 
-    // Read the real detection results
     const data = await response.json()
 
-    // Keep Mothra visible for at least 2.5 seconds
-    await new Promise(resolve =>
-      setTimeout(resolve, 2500)
+    if (!Array.isArray(data.threats)) {
+      throw new Error(
+        'Invalid API response: threats must be an array.'
+      )
+    }
+
+    console.log(
+      '[CYBERZILLA] Full Python API response:',
+      data
     )
 
-    // Update the dashboard with Python results
-    threats.value = data.threats
+    // Keep Mothra visible long enough to enjoy the animation
+    await delay(2500)
+
+    // IMPORTANT:
+    // Preserve the complete threat objects returned by Python.
+    // This includes evidence, timestamps and descriptions.
+    threats.value = data.threats.map(threat => ({
+      ...threat,
+      evidence: Array.isArray(threat.evidence)
+        ? threat.evidence
+        : []
+    }))
+
+    totalEvents.value = data.total_events ?? 0
     scanCount.value++
 
     mascotState.value = 'monitoring'
 
-    if (data.threats_detected > 0) {
-      systemStatus.value = 'THREAT DETECTED'
-    } else {
-      systemStatus.value = 'MONITORING'
-    }
-
-    console.log(
-      '[CYBERZILLA] Scan completed:',
-      data
-    )
+    systemStatus.value =
+      threats.value.length > 0
+        ? 'THREAT DETECTED'
+        : 'MONITORING'
 
   } catch (error) {
     console.error(
@@ -122,49 +131,57 @@ async function startScan() {
       error
     )
 
-    systemStatus.value = 'SCAN FAILED'
-    mascotState.value = 'monitoring'
+    errorMessage.value =
+      'Could not complete the scan. Check that the Python API is running on port 8000.'
 
-    alert(
-      'Cyberzilla could not connect to the Python API. ' +
-      'Check that the backend is running.'
-    )
+    mascotState.value = 'monitoring'
+    systemStatus.value = 'SCAN FAILED'
 
   } finally {
     scanning.value = false
   }
 }
-    systemStatus.value = 'THREAT DETECTED'
-  }, 2500)
-}
 
-function atomicBreath(threat) {
-  if (scanning.value || threat.status !== 'DETECTED') {
+// Simulated defensive response.
+// This does NOT block IP addresses or change firewall rules.
+async function atomicBreath(threat) {
+  if (
+    scanning.value ||
+    threat.status !== 'DETECTED'
+  ) {
     return
   }
 
   scanning.value = true
   mascotState.value = 'atomic'
   systemStatus.value = 'ATOMIC BREATH'
+  errorMessage.value = ''
 
-  // Simulated defensive response.
-  // No real IP addresses are blocked.
+  await delay(2500)
 
-  setTimeout(() => {
-    threat.status = 'NEUTRALIZED (SIMULATED)'
+  threat.status = 'NEUTRALIZED (SIMULATED)'
+  threat.response = 'SIMULATED'
 
-    mascotState.value = 'defeated'
-    systemStatus.value = 'THREAT NEUTRALIZED'
-    scanning.value = false
-  }, 2500)
+  mascotState.value = 'defeated'
+  systemStatus.value = 'THREAT NEUTRALIZED'
+  scanning.value = false
 }
 
 function resetDashboard() {
   if (scanning.value) return
 
   threats.value = []
+  totalEvents.value = 0
   mascotState.value = 'monitoring'
   systemStatus.value = 'MONITORING'
+  errorMessage.value = ''
+}
+
+// Format API timestamps for easier reading
+function formatTimestamp(timestamp) {
+  if (!timestamp) return 'Not available'
+
+  return timestamp.replace('T', ' ')
 }
 </script>
 
@@ -178,30 +195,34 @@ function resetDashboard() {
         <p>ATOMIC DEFENSE SYSTEM</p>
       </div>
 
-      <span class="status">
+      <span
+        class="status"
+        :class="{
+          'status-danger': systemStatus === 'THREAT DETECTED',
+          'status-error': systemStatus === 'SCAN FAILED'
+        }"
+      >
         {{ systemStatus }}
       </span>
     </header>
 
-    <!-- MASCOT SECTION -->
+    <!-- MASCOT / SCAN SECTION -->
     <section class="hero">
 
       <div class="mascot-container">
-
         <img
           :src="currentMascot"
           :class="['mascot-image', mascotState]"
-          alt="Cyberzilla security mascot"
+          :alt="`Cyberzilla mascot: ${mascotState}`"
         />
-
       </div>
 
       <div class="hero-content">
-
         <h2>{{ currentMessage }}</h2>
 
         <p v-if="mascotState === 'scanning'">
-          Analyzing authentication events...
+          Analyzing authentication events with the
+          Cyberzilla Python detection engine...
         </p>
 
         <p v-else-if="mascotState === 'atomic'">
@@ -209,28 +230,43 @@ function resetDashboard() {
         </p>
 
         <p v-else-if="mascotState === 'defeated'">
-          The simulated threat has been neutralized.
+          The simulated defensive response has completed.
+          No real network changes were made.
+        </p>
+
+        <p v-else-if="systemStatus === 'SCAN FAILED'">
+          The detection engine could not be reached.
         </p>
 
         <p v-else>
-          Cyberzilla is monitoring your environment.
+          Cyberzilla is ready to analyze sample
+          authentication logs.
         </p>
 
-        <button
-          @click="startScan"
-          :disabled="scanning"
-        >
-          {{ scanning ? 'PROCESSING...' : 'START SCAN' }}
-        </button>
+        <div class="hero-actions">
+          <button
+            @click="startScan"
+            :disabled="scanning"
+          >
+            {{ scanning ? 'PROCESSING...' : 'START SCAN' }}
+          </button>
 
-        <button
-          class="secondary"
-          @click="resetDashboard"
-          :disabled="scanning"
-        >
-          RESET
-        </button>
+          <button
+            class="secondary"
+            @click="resetDashboard"
+            :disabled="scanning"
+          >
+            RESET
+          </button>
+        </div>
 
+        <p
+          v-if="errorMessage"
+          class="error-message"
+          role="alert"
+        >
+          {{ errorMessage }}
+        </p>
       </div>
     </section>
 
@@ -248,6 +284,11 @@ function resetDashboard() {
       </div>
 
       <div class="stat-card">
+        <h3>EVENTS ANALYZED</h3>
+        <strong>{{ totalEvents }}</strong>
+      </div>
+
+      <div class="stat-card">
         <h3>SYSTEM STATUS</h3>
         <strong class="small">
           {{ systemStatus }}
@@ -259,120 +300,189 @@ function resetDashboard() {
     <!-- THREAT INTELLIGENCE -->
     <section class="alerts">
 
-      <h2>THREAT INTELLIGENCE</h2>
+      <div class="section-heading">
+        <div>
+          <h2>THREAT INTELLIGENCE</h2>
+          <p>
+            Detection results from the Python engine
+          </p>
+        </div>
+
+        <span
+          v-if="threats.length > 0"
+          class="alert-count"
+        >
+          {{ detectedThreats }} ACTIVE
+        </span>
+      </div>
 
       <div
         v-if="threats.length === 0"
         class="empty"
       >
-        No active alerts.
+        No active alerts. Run a scan to analyze
+        the sample authentication events.
       </div>
 
+      <!-- THREAT CARDS -->
       <div
-        v-for="threat in threats"
-        :key="threat.rule_id"
+        v-for="(threat, threatIndex) in threats"
+        :key="`${threat.rule_id}-${threat.source_ip}-${threatIndex}`"
         class="threat-card"
       >
 
         <div class="threat-header">
           <h3>{{ threat.rule_name }}</h3>
 
-          <span class="severity">
+          <span
+            class="severity"
+            :class="`severity-${String(threat.severity).toLowerCase()}`"
+          >
             {{ threat.severity }}
           </span>
         </div>
 
-        <p>Rule: {{ threat.rule_id }}</p>
-        <p>Source IP: {{ threat.source_ip }}</p>
-        <p>Failed attempts: {{ threat.attempts }}</p>
-        <p>Status: {{ threat.status }}</p>
+        <div class="threat-details">
+          <p>
+            <strong>Rule:</strong>
+            {{ threat.rule_id }}
+          </p>
 
+          <p>
+            <strong>Source IP:</strong>
+            {{ threat.source_ip }}
+          </p>
+
+          <p>
+            <strong>Failed attempts:</strong>
+            {{ threat.attempts ?? 'N/A' }}
+          </p>
+
+          <p>
+            <strong>Status:</strong>
+            <span
+              :class="{
+                'status-neutralized':
+                  threat.status === 'NEUTRALIZED (SIMULATED)'
+              }"
+            >
+              {{ threat.status }}
+            </span>
+          </p>
+        </div>
+
+        <!-- EVIDENCE VIEWER -->
+        <details class="evidence-panel">
+
+          <summary>
+            <span>🔍 VIEW EVIDENCE</span>
+
+            <span class="evidence-count">
+              {{ threat.evidence?.length ?? 0 }} events
+            </span>
+          </summary>
+
+          <div class="evidence-content">
+
+            <p class="evidence-description">
+              {{
+                threat.description ||
+                'No detection description available.'
+              }}
+            </p>
+
+            <div class="evidence-times">
+              <p>
+                <strong>First seen:</strong>
+                {{ formatTimestamp(threat.first_seen) }}
+              </p>
+
+              <p>
+                <strong>Last seen:</strong>
+                {{ formatTimestamp(threat.last_seen) }}
+              </p>
+            </div>
+
+            <div
+              v-if="threat.evidence?.length"
+              class="evidence-table-wrapper"
+            >
+              <table class="evidence-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Source IP</th>
+                    <th>Username</th>
+                    <th>Event Type</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <tr
+                    v-for="(event, eventIndex) in threat.evidence"
+                    :key="eventIndex"
+                  >
+                    <td>
+                      {{ formatTimestamp(event.timestamp) }}
+                    </td>
+
+                    <td>
+                      {{ event.source_ip }}
+                    </td>
+
+                    <td>
+                      {{ event.username }}
+                    </td>
+
+                    <td>
+                      <span class="event-badge">
+                        {{ event.event_type }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p
+              v-else
+              class="no-evidence"
+            >
+              No supporting events available.
+            </p>
+
+          </div>
+        </details>
+        <!-- END EVIDENCE VIEWER -->
+
+        <!-- ATOMIC BREATH IS OUTSIDE <details> -->
         <button
           class="atomic-button"
-          :disabled="scanning || threat.status !== 'DETECTED'"
+          :disabled="
+            scanning ||
+            threat.status !== 'DETECTED'
+          "
           @click="atomicBreath(threat)"
-
-        
-<!-- DETECTION EVIDENCE -->
-<details class="evidence-panel">
-  <summary>
-    🔍 VIEW EVIDENCE
-    <span class="evidence-count">
-      {{ threat.evidence?.length ?? 0 }} events
-    </span>
-  </summary>
-
-  <div class="evidence-content">
-    <p class="evidence-description">
-      {{ threat.description }}
-    </p>
-
-    <div class="evidence-times">
-      <p>
-        <strong>First seen:</strong>
-        {{ threat.first_seen }}
-      </p>
-      <p>
-        <strong>Last seen:</strong>
-        {{ threat.last_seen }}
-      </p>
-    </div>
-
-    <div class="evidence-table-wrapper">
-      <table class="evidence-table">
-        <thead>
-          <tr>
-            <th>Timestamp</th>
-            <th>Source IP</th>
-            <th>Username</th>
-            <th>Event Type</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          <tr
-            v-for="(event, index) in threat.evidence ?? []"
-            :key="index"
-          >
-            <td>{{ event.timestamp }}</td>
-            <td>{{ event.source_ip }}</td>
-            <td>{{ event.username }}</td>
-            <td>
-              <span class="event-badge">
-                {{ event.event_type }}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p
-      v-if="!threat.evidence?.length"
-      class="no-evidence"
-    >
-      No supporting events available.
-    </p>
-  </div>
-</details>
         >
           ☢️ ATOMIC BREATH
         </button>
 
       </div>
-
     </section>
 
+    <!-- FOOTER -->
     <footer>
-      CYBERZILLA v0.4 · ATOMIC DEFENSE SYSTEM
+      CYBERZILLA v0.5 · ATOMIC DEFENSE SYSTEM
       <br />
-      DEMO MODE · SIMULATED SECURITY EVENTS
+      SAMPLE LOG ANALYSIS · SIMULATED DEFENSIVE RESPONSE
     </footer>
 
   </div>
 </template>
 
 <style>
+/* GENERAL */
+
 * {
   box-sizing: border-box;
 }
@@ -381,7 +491,7 @@ body {
   margin: 0;
   background: #080f1d;
   color: #e8f4ff;
-  font-family: Arial, sans-serif;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 button {
@@ -392,8 +502,7 @@ button {
   padding: 12px 20px;
   font-weight: bold;
   cursor: pointer;
-  margin-right: 10px;
-  margin-top: 15px;
+  transition: background 0.2s ease;
 }
 
 button:hover:not(:disabled) {
@@ -406,36 +515,56 @@ button:disabled {
 }
 
 .dashboard {
-  max-width: 1200px;
+  max-width: 1300px;
   margin: auto;
   padding: 30px;
 }
+
+/* HEADER */
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 20px;
   border-bottom: 1px solid #27435c;
   padding-bottom: 20px;
 }
 
 .header h1 {
   color: #63d8ff;
-  margin-bottom: 5px;
+  margin: 0 0 8px;
+  letter-spacing: 2px;
 }
 
 .header p {
   color: #8baabe;
   letter-spacing: 3px;
+  font-size: 12px;
+  margin: 0;
 }
 
 .status {
   color: #68e7b0;
   background: #123a35;
-  padding: 10px;
+  padding: 10px 14px;
   border-radius: 8px;
   font-size: 12px;
+  font-weight: bold;
+  text-align: center;
 }
+
+.status-danger {
+  color: #ffaaaa;
+  background: #512b35;
+}
+
+.status-error {
+  color: #ffd1d1;
+  background: #632b2b;
+}
+
+/* HERO / MASCOTS */
 
 .hero {
   display: flex;
@@ -478,6 +607,41 @@ button:disabled {
 .mascot-image.defeated {
   animation: defeated 0.6s ease-out;
 }
+
+.hero-content {
+  flex: 1;
+}
+
+.hero-content h2 {
+  color: #6fe0ff;
+  margin-top: 0;
+}
+
+.hero-content p {
+  color: #d8eaf5;
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.secondary {
+  background: #304457;
+}
+
+.error-message {
+  color: #ffaaaa !important;
+  background: #512b35;
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+
+/* MASCOT ANIMATIONS */
 
 @keyframes breathe {
   from {
@@ -523,17 +687,11 @@ button:disabled {
   }
 }
 
-.hero h2 {
-  color: #6fe0ff;
-}
-
-.secondary {
-  background: #304457;
-}
+/* STATISTICS */
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   margin-top: 30px;
 }
@@ -547,6 +705,7 @@ button:disabled {
 .stat-card h3 {
   font-size: 12px;
   color: #8baabe;
+  margin-top: 0;
 }
 
 .stat-card strong {
@@ -555,14 +714,45 @@ button:disabled {
 }
 
 .stat-card .small {
-  font-size: 16px;
+  font-size: 15px;
+  overflow-wrap: anywhere;
 }
+
+/* THREAT INTELLIGENCE */
 
 .alerts {
   background: #111f33;
   border-radius: 12px;
   padding: 25px;
   margin-top: 30px;
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.section-heading h2 {
+  margin: 0 0 8px;
+}
+
+.section-heading p {
+  color: #8baabe;
+  font-size: 13px;
+  margin: 0;
+}
+
+.alert-count {
+  background: #512b35;
+  color: #ffaaaa;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
 }
 
 .empty {
@@ -574,63 +764,63 @@ button:disabled {
 .threat-card {
   background: #1a2c42;
   border-left: 4px solid #ff5959;
-  padding: 20px;
+  padding: 25px;
   border-radius: 8px;
+  margin-top: 15px;
 }
 
 .threat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 15px;
+}
+
+.threat-header h3 {
+  margin: 0;
 }
 
 .severity {
   background: #632b2b;
   color: #ff9999;
-  padding: 7px;
+  padding: 7px 10px;
   border-radius: 5px;
+  font-size: 13px;
+  font-weight: bold;
 }
 
-.atomic-button {
-  background: #087bb5;
+.severity-medium {
+  background: #58411d;
+  color: #ffd17d;
 }
 
-footer {
-  margin-top: 40px;
-  text-align: center;
-  color: #65839a;
-  font-size: 12px;
-  line-height: 2;
+.severity-low {
+  background: #16443b;
+  color: #89e6c1;
 }
 
-@media (max-width: 700px) {
-  .header,
-  .hero {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .mascot-container {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .stats {
-    grid-template-columns: 1fr;
-  }
+.threat-details {
+  margin-top: 22px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .mascot-image {
-    animation: none !important;
-  }
+.threat-details p {
+  margin: 12px 0;
+  overflow-wrap: anywhere;
 }
 
-/* CYBERZILLA — THREAT EVIDENCE */
+.threat-details strong {
+  color: #b4d1e4;
+}
+
+.status-neutralized {
+  color: #89e6c1;
+}
+
+/* EVIDENCE VIEWER */
 
 .evidence-panel {
-  margin-top: 20px;
-  margin-bottom: 15px;
+  margin-top: 24px;
+  margin-bottom: 18px;
   border: 1px solid #34516d;
   border-radius: 10px;
   background: #101d2e;
@@ -657,6 +847,10 @@ footer {
   background: #1b344c;
 }
 
+.evidence-panel[open] summary {
+  border-bottom: 1px solid #34516d;
+}
+
 .evidence-count {
   color: #9eb7ca;
   font-size: 12px;
@@ -665,18 +859,22 @@ footer {
 
 .evidence-content {
   padding: 18px;
-  border-top: 1px solid #34516d;
 }
 
 .evidence-description {
   color: #d8eaf5;
   line-height: 1.6;
+  margin-top: 0;
 }
 
 .evidence-times {
   color: #a8c0d2;
   font-size: 13px;
   margin: 16px 0;
+}
+
+.evidence-times p {
+  margin: 8px 0;
 }
 
 .evidence-table-wrapper {
@@ -723,5 +921,81 @@ footer {
 
 .no-evidence {
   color: #9eb7ca;
+}
+
+/* ATOMIC BREATH BUTTON */
+
+.atomic-button {
+  background: #087bb5;
+  margin-top: 4px;
+}
+
+.atomic-button:hover:not(:disabled) {
+  background: #00a7eb;
+}
+
+/* FOOTER */
+
+footer {
+  margin-top: 40px;
+  text-align: center;
+  color: #65839a;
+  font-size: 12px;
+  line-height: 2;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 900px) {
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .dashboard {
+    padding: 16px;
+  }
+
+  .header,
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero {
+    padding: 24px;
+    gap: 20px;
+  }
+
+  .mascot-container {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mascot-image {
+    max-height: 260px;
+  }
+
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading,
+  .threat-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .alerts,
+  .threat-card {
+    padding: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot-image {
+    animation: none !important;
+  }
 }
 </style>
