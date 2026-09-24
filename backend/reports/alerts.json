@@ -1,0 +1,46 @@
+[
+    {
+        "rule_id": "CZ-001",
+        "rule_name": "Repeated Failed Login Attempts",
+        "source_ip": "192.0.2.10",
+        "severity": "HIGH",
+        "attempts": 5,
+        "first_seen": "2026-09-24T10:00:00",
+        "last_seen": "2026-09-24T10:00:40",
+        "description": "5 failed login attempts detected within 60 seconds from 192.0.2.10.",
+        "evidence": [
+            {
+                "timestamp": "2026-09-24T10:00:00",
+                "source_ip": "192.0.2.10",
+                "username": "admin",
+                "event_type": "login_failed"
+            },
+            {
+                "timestamp": "2026-09-24T10:00:10",
+                "source_ip": "192.0.2.10",
+                "username": "admin",
+                "event_type": "login_failed"
+            },
+            {
+                "timestamp": "2026-09-24T10:00:20",
+                "source_ip": "192.0.2.10",
+                "username": "admin",
+                "event_type": "login_failed"
+            },
+            {
+                "timestamp": "2026-09-24T10:00:30",
+                "source_ip": "192.0.2.10",
+                "username": "admin",
+                "event_type": "login_failed"
+            },
+            {
+                "timestamp": "2026-09-24T10:00:40",
+                "source_ip": "192.0.2.10",
+                "username": "admin",
+                "event_type": "login_failed"
+            }
+        ],
+        "status": "DETECTED",
+        "response": "NOT_EXECUTED"
+    }
+]

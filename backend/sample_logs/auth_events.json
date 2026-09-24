@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-09-24T10:00:00",
+    "source_ip": "192.0.2.10",
+    "username": "admin",
+    "event_type": "login_failed"
+  },
+  {
+    "timestamp": "2026-09-24T10:00:10",
+    "source_ip": "192.0.2.10",
+    "username": "admin",
+    "event_type": "login_failed"
+  },
+  {
+    "timestamp": "2026-09-24T10:00:20",
+    "source_ip": "192.0.2.10",
+    "username": "admin",
+    "event_type": "login_failed"
+  },
+  {
+    "timestamp": "2026-09-24T10:00:30",
+    "source_ip": "192.0.2.10",
+    "username": "admin",
+    "event_type": "login_failed"
+  },
+  {
+    "timestamp": "2026-09-24T10:00:40",
+    "source_ip": "192.0.2.10",
+    "username": "admin",
+    "event_type": "login_failed"
+  },
+  {
+    "timestamp": "2026-09-24T10:01:00",
+    "source_ip": "192.0.2.20",
+    "username": "marco",
+    "event_type": "login_success"
+  }
+]
