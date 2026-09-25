@@ -154,12 +154,15 @@ Cyberzilla is an educational prototype, **not an antivirus, production SIEM, or 
 
 Cybersecurity student building practical projects in Python, web development, security monitoring, and detection engineering.
 
+
 ## Acknowledgments
 
-Special thanks to my wife, Lady, for her love, patience, and encouragement throughout my journey in cybersecurity. Her thoughtful questions remind me that understanding a technology also means being able to explain it clearly to others.
+First and foremost, I thank my wife, Lady, for her love, patience, and encouragement throughout my journey in cybersecurity. Her thoughtful questions inspire me to keep learning and remind me that understanding technology also means being able to explain it clearly to others.
 
-I am also grateful to my family for supporting my education and giving me the motivation to keep learning and building.
+To my children, Anthony and Emily: you are my greatest motivation to keep moving forward. Every challenge I overcome and every new skill I learn is part of my effort to build a better future for our family. I hope that one day you will look at this project and know that your dad never stopped learning or pursuing his dreams.
 
-Finally, thanks to ChatGPT (Moka) for providing guidance, explanations, and debugging assistance during the development of Cyberzilla.
+To my parents, Marco and Marta: thank you for your love, sacrifices, and unwavering support. You have encouraged me to pursue opportunities, believe in myself, and persevere even when the journey has been difficult. I carry your example with me in everything I do.
 
-Cyberzilla was designed, implemented, tested, and documented by Marco Aguilar as a hands-on learning project.
+I am also grateful to ChatGPT (Moka) for providing explanations, guidance, and debugging assistance throughout the development of Cyberzilla.
+
+**Cyberzilla was designed, implemented, tested, and documented by Marco Aguilar as a hands-on cybersecurity learning project.**
