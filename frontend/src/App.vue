@@ -1,1015 +1,334 @@
-
 <script setup>
 import { computed, ref } from 'vue'
 
-// CYBERZILLA: ATOMIC DEFENSE SYSTEM
-// Version 0.5 — Python API + Threat Evidence Viewer
+const phase = ref('idle')
+const busy = ref(false)
+const error = ref('')
+const result = ref(null)
+const scannedAt = ref(null)
+const connection = ref('Not checked')
+const scenario = ref('suspicious')
+const activity = ref([])
+const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
-const API_URL = 'http://127.0.0.1:8000'
-
-const systemStatus = ref('MONITORING')
-const mascotState = ref('monitoring')
-const scanning = ref(false)
-const threats = ref([])
-const scanCount = ref(0)
-const totalEvents = ref(0)
-const errorMessage = ref('')
-
-const mascotImages = {
-  monitoring: '/mascots/godzilla-monitoring.png',
-  scanning: '/mascots/mothra-scanning.png',
-  atomic: '/mascots/godzilla-atomic.png',
-  defeated: '/mascots/destoroyah-defeated.png'
+const states = {
+  idle: { image: 'godzilla-detect.gif', title: 'Ready when you are', description: 'Choose a sample scenario or paste your own events to begin.', label: 'Ready' },
+  scanning: { image: 'gigan-scan.gif', title: 'Analyzing events', description: 'Gigan is checking the submitted events with the detection API.', label: 'Scanning' },
+  detected: { image: 'godzilla-detect.gif', title: 'Suspicious activity found', description: 'Review the findings below. You can also explore a simulated response.', label: 'Review needed' },
+  clean: { image: 'godzilla-detect.gif', title: 'No rule matches found', description: 'These events did not trigger the detector. This is not a full security assessment.', label: 'Scan complete' },
+  responding: { image: 'godzilla-atomic.gif', title: 'Simulating containment', description: 'Godzilla demonstrates the response stage. No IP addresses are being blocked.', label: 'Simulation' },
+  healing: { image: 'mothra-heal.gif', title: 'Simulating recovery', description: 'Mothra illustrates recovery. No files or malware are being removed.', label: 'Simulation' },
+  contained: { image: 'destoroyah-peace.gif', title: 'Response demo complete', description: 'Destoroyah has surrendered. The original scan findings remain available for review.', label: 'Demo complete' },
 }
-
-const currentMascot = computed(() => {
-  return mascotImages[mascotState.value]
+const current = computed(() => states[phase.value])
+const threats = computed(() => Array.isArray(result.value?.threats) ? result.value.threats : [])
+const threatCount = computed(() => result.value?.threats_detected ?? threats.value.length)
+const severityRank = { UNKNOWN: 0, INFO: 1, LOW: 2, MEDIUM: 3, HIGH: 4, CRITICAL: 5 }
+const highestSeverity = computed(() => {
+  if (!result.value) return '—'
+  if (!threatCount.value) return 'None'
+  return threats.value.reduce((highest, threat) => {
+    const level = String(threat.severity || 'UNKNOWN').toUpperCase()
+    return (severityRank[level] || 0) > (severityRank[highest] || 0) ? level : highest
+  }, 'UNKNOWN')
 })
-
-const currentMessage = computed(() => {
-  switch (mascotState.value) {
-    case 'scanning':
-      return 'Mothra is scanning security events...'
-
-    case 'atomic':
-      return 'ATOMIC BREATH ACTIVATED!'
-
-    case 'defeated':
-      return 'Threat response completed!'
-
-    default:
-      if (systemStatus.value === 'SCAN FAILED') {
-        return 'Unable to complete the scan.'
-      }
-
-      return threats.value.some(
-        threat => threat.status === 'DETECTED'
-      )
-        ? 'Suspicious activity detected!'
-        : 'All systems secure.'
-  }
+const eventCount = computed(() => {
+  try { const events = JSON.parse(eventsText.value); return Array.isArray(events) ? events.length : null }
+  catch { return null }
 })
+const lastScan = computed(() => scannedAt.value ? scannedAt.value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No scans yet')
 
-const detectedThreats = computed(() => {
-  return threats.value.filter(
-    threat => threat.status === 'DETECTED'
-  ).length
-})
-
-function delay(milliseconds) {
-  return new Promise(resolve => {
-    setTimeout(resolve, milliseconds)
-  })
+function makeEvents(suspicious) {
+  const start = Date.now() - 60000
+  return Array.from({ length: 6 }, (_, index) => ({
+    timestamp: new Date(start + index * 8000).toISOString(),
+    source_ip: suspicious ? '192.0.2.10' : `192.0.2.${index + 20}`,
+    username: 'demo-user',
+    event_type: suspicious && index < 5 ? 'login_failed' : 'login_success',
+  }))
 }
+const eventsText = ref(JSON.stringify(makeEvents(true), null, 2))
 
-// Run the real Python detection engine
-async function startScan() {
-  if (scanning.value) return
+function loadScenario(value) {
+  if (busy.value) return
+  scenario.value = value
+  eventsText.value = JSON.stringify(makeEvents(value === 'suspicious'), null, 2)
+  error.value = ''
+}
+function log(message) {
+  activity.value.unshift({ message, time: new Date().toLocaleTimeString() })
+  activity.value = activity.value.slice(0, 8)
+}
+function severityClass(value) {
+  const level = String(value || '').toLowerCase()
+  return ['critical', 'high', 'medium', 'low'].includes(level) ? level : 'neutral'
+}
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
-  scanning.value = true
-  mascotState.value = 'scanning'
-  systemStatus.value = 'SCANNING'
-  errorMessage.value = ''
-
-  // Clear previous results before the new scan
-  threats.value = []
-  totalEvents.value = 0
-
+async function scan() {
+  if (busy.value) return
+  error.value = ''
+  let events
   try {
-    const response = await fetch(
-      `${API_URL}/api/scan`,
-      {
-        method: 'POST'
-      }
-    )
+    events = JSON.parse(eventsText.value)
+    if (!Array.isArray(events) || !events.length) throw new Error('Enter a non-empty JSON array of events.')
+    if (events.some(event => !event || typeof event !== 'object' || !event.timestamp || !event.source_ip || !event.event_type)) {
+      throw new Error('Every event needs timestamp, source_ip, and event_type.')
+    }
+  } catch (err) { error.value = `Check your event data: ${err.message}`; return }
 
+  busy.value = true
+  result.value = null
+  scannedAt.value = null
+  phase.value = 'scanning'
+  log(`Scan started · ${events.length} events submitted`)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  try {
+    const response = await fetch(`${apiBase}/api/scan`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events }), signal: controller.signal,
+    })
+    const body = await response.text()
     if (!response.ok) {
-      throw new Error(
-        `Cyberzilla API returned HTTP ${response.status}`
-      )
+      connection.value = 'Server reached'
+      throw new Error(`Scan failed (${response.status}). ${body.slice(0, 350)}`)
     }
-
-    const data = await response.json()
-
-    if (!Array.isArray(data.threats)) {
-      throw new Error(
-        'Invalid API response: threats must be an array.'
-      )
+    let data
+    try { data = JSON.parse(body) }
+    catch { throw new Error('The server returned an unexpected response. Check the API connection.') }
+    if (!data || typeof data !== 'object' || (typeof data.threats_detected !== 'number' && !Array.isArray(data.threats))) {
+      throw new Error('The response is missing the expected scan findings.')
     }
-
-    console.log(
-      '[CYBERZILLA] Full Python API response:',
-      data
-    )
-
-    // Keep Mothra visible long enough to enjoy the animation
-    await delay(2500)
-
-    // IMPORTANT:
-    // Preserve the complete threat objects returned by Python.
-    // This includes evidence, timestamps and descriptions.
-    threats.value = data.threats.map(threat => ({
-      ...threat,
-      evidence: Array.isArray(threat.evidence)
-        ? threat.evidence
-        : []
-    }))
-
-    totalEvents.value = data.total_events ?? 0
-    scanCount.value++
-
-    mascotState.value = 'monitoring'
-
-    systemStatus.value =
-      threats.value.length > 0
-        ? 'THREAT DETECTED'
-        : 'MONITORING'
-
-  } catch (error) {
-    console.error(
-      '[CYBERZILLA] Scan failed:',
-      error
-    )
-
-    errorMessage.value =
-      'Could not complete the scan. Check that the Python API is running on port 8000.'
-
-    mascotState.value = 'monitoring'
-    systemStatus.value = 'SCAN FAILED'
-
-  } finally {
-    scanning.value = false
-  }
+    result.value = data
+    scannedAt.value = new Date()
+    connection.value = 'Verified by scan'
+    phase.value = threatCount.value > 0 ? 'detected' : 'clean'
+    log(`Scan complete · ${threatCount.value} threat${threatCount.value === 1 ? '' : 's'} detected`)
+  } catch (err) {
+    error.value = err.name === 'AbortError'
+      ? 'The scan timed out. Check that FastAPI is running and try again.'
+      : err.message === 'Failed to fetch'
+        ? 'Unable to reach the API. Keep FastAPI running and check the Vite proxy.'
+        : err.message
+    if (err.name === 'AbortError' || err.message === 'Failed to fetch') connection.value = 'Connection failed'
+    phase.value = 'idle'
+    log('Scan failed · no result available')
+  } finally { clearTimeout(timeout); busy.value = false }
 }
 
-// Simulated defensive response.
-// This does NOT block IP addresses or change firewall rules.
-
-async function atomicBreath(threat) {
-  if (
-    scanning.value ||
-    threat.status !== 'DETECTED'
-  ) {
-    return
-  }
-
-  scanning.value = true
-  mascotState.value = 'atomic'
-  systemStatus.value = 'ATOMIC BREATH'
-  errorMessage.value = ''
-
-  // Simulated defensive response.
-  // No real IP addresses are blocked.
-  await delay(2500)
-
-  threat.status = 'NEUTRALIZED (SIMULATED)'
-  threat.response = 'SIMULATED'
-
-  // Check whether other alerts remain active.
-  const remainingThreats = threats.value.filter(
-    item => item.status === 'DETECTED'
-  ).length
-
-  if (remainingThreats > 0) {
-    mascotState.value = 'monitoring'
-    systemStatus.value = 'THREAT DETECTED'
-  } else {
-    mascotState.value = 'defeated'
-    systemStatus.value = 'THREATS NEUTRALIZED (SIMULATED)'
-  }
-
-  scanning.value = false
+async function simulateResponse() {
+  if (busy.value || !['detected', 'contained'].includes(phase.value)) return
+  busy.value = true
+  try {
+    phase.value = 'responding'; log('Simulation · containment stage started')
+    await wait(2400)
+    phase.value = 'healing'; log('Simulation · recovery stage started')
+    await wait(2600)
+    phase.value = 'contained'; log('Simulation complete · no system changes made')
+  } finally { busy.value = false }
 }
 
-function resetDashboard() {
-  if (scanning.value) return
-
-  threats.value = []
-  totalEvents.value = 0
-  mascotState.value = 'monitoring'
-  systemStatus.value = 'MONITORING'
-  errorMessage.value = ''
-}
-
-// Format API timestamps for easier reading
-function formatTimestamp(timestamp) {
-  if (!timestamp) return 'Not available'
-
-  return timestamp.replace('T', ' ')
+function downloadReport() {
+  if (!result.value) return
+  const blob = new Blob([JSON.stringify(result.value, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url; link.download = 'cyberzilla-scan-report.json'; link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 </script>
 
 <template>
-  <div class="dashboard">
-
-    <!-- HEADER -->
-    <header class="header">
-      <div>
-        <h1>CYBERZILLA</h1>
-        <p>ATOMIC DEFENSE SYSTEM</p>
-      </div>
-
-      <span
-        class="status"
-        :class="{
-          'status-danger': systemStatus === 'THREAT DETECTED',
-          'status-error': systemStatus === 'SCAN FAILED'
-        }"
-      >
-        {{ systemStatus }}
-      </span>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#overview" aria-label="Cyberzilla overview">
+        <span class="brand-mark" aria-hidden="true">CZ</span>
+        <span><strong>Cyberzilla</strong><small>Atomic Defense System</small></span>
+      </a>
+      <span class="portfolio-tag">Security portfolio</span>
     </header>
 
-    <!-- MASCOT / SCAN SECTION -->
-    <section class="hero">
-
-      <div class="mascot-container">
-        <img
-          :src="currentMascot"
-          :class="['mascot-image', mascotState]"
-          :alt="`Cyberzilla mascot: ${mascotState}`"
-        />
+    <main id="overview" :aria-busy="busy">
+      <div class="page-heading">
+        <div><span class="eyebrow">SECURITY WORKSPACE</span><h1>Understand the signal.<br /><span>Respond with confidence.</span></h1>
+          <p>Analyze login events and turn suspicious activity into clear findings.</p></div>
+        <div class="connection"><span class="status-dot" :class="{ verified: connection === 'Verified by scan' }"></span><div><strong>Detection API</strong><small>{{ connection }}</small></div></div>
       </div>
 
-      <div class="hero-content">
-        <h2>{{ currentMessage }}</h2>
+      <section class="metrics" aria-label="Latest scan summary">
+        <article class="metric"><span>Events analyzed</span><strong>{{ result?.total_events ?? '—' }}</strong><small>Latest submitted scan</small></article>
+        <article class="metric"><span>Threats detected</span><strong :class="{ 'warning-text': result && threatCount > 0 }">{{ result ? threatCount : '—' }}</strong><small>Matches from the detection API</small></article>
+        <article class="metric"><span>Highest severity</span><strong class="severity-value" :class="severityClass(highestSeverity)">{{ highestSeverity }}</strong><small>Based on returned findings</small></article>
+        <article class="metric"><span>Last scan</span><strong class="time-value">{{ lastScan }}</strong><small>Current session · local time</small></article>
+      </section>
 
-        <p v-if="mascotState === 'scanning'">
-          Analyzing authentication events with the
-          Cyberzilla Python detection engine...
-        </p>
-
-        <p v-else-if="mascotState === 'atomic'">
-          Executing simulated defensive response...
-        </p>
-
-        <p v-else-if="mascotState === 'defeated'">
-          The simulated defensive response has completed.
-          No real network changes were made.
-        </p>
-
-        <p v-else-if="systemStatus === 'SCAN FAILED'">
-          The detection engine could not be reached.
-        </p>
-
-        <p v-else>
-          Cyberzilla is ready to analyze sample
-          authentication logs.
-        </p>
-
-        <div class="hero-actions">
-          <button
-            @click="startScan"
-            :disabled="scanning"
-          >
-            {{ scanning ? 'PROCESSING...' : 'START SCAN' }}
-          </button>
-
-          <button
-            class="secondary"
-            @click="resetDashboard"
-            :disabled="scanning"
-          >
-            RESET
-          </button>
-        </div>
-
-        <p
-          v-if="errorMessage"
-          class="error-message"
-          role="alert"
-        >
-          {{ errorMessage }}
-        </p>
-      </div>
-    </section>
-
-    <!-- STATISTICS -->
-    <section class="stats">
-
-      <div class="stat-card">
-        <h3>THREATS DETECTED</h3>
-        <strong>{{ threats.length }}</strong>
-      </div>
-
-      <div class="stat-card">
-        <h3>SCANS COMPLETED</h3>
-        <strong>{{ scanCount }}</strong>
-      </div>
-
-      <div class="stat-card">
-        <h3>EVENTS ANALYZED</h3>
-        <strong>{{ totalEvents }}</strong>
-      </div>
-
-      <div class="stat-card">
-        <h3>SYSTEM STATUS</h3>
-        <strong class="small">
-          {{ systemStatus }}
-        </strong>
-      </div>
-
-    </section>
-
-    <!-- THREAT INTELLIGENCE -->
-    <section class="alerts">
-
-      <div class="section-heading">
-        <div>
-          <h2>THREAT INTELLIGENCE</h2>
-          <p>
-            Detection results from the Python engine
-          </p>
-        </div>
-
-        <span
-          v-if="threats.length > 0"
-          class="alert-count"
-        >
-          {{ detectedThreats }} ACTIVE
-        </span>
-      </div>
-
-      <div
-        v-if="threats.length === 0"
-        class="empty"
-      >
-        No active alerts. Run a scan to analyze
-        the sample authentication events.
-      </div>
-
-      <!-- THREAT CARDS -->
-      <div
-        v-for="(threat, threatIndex) in threats"
-        :key="`${threat.rule_id}-${threat.source_ip}-${threatIndex}`"
-        class="threat-card"
-      >
-
-        <div class="threat-header">
-          <h3>{{ threat.rule_name }}</h3>
-
-          <span
-            class="severity"
-            :class="`severity-${String(threat.severity).toLowerCase()}`"
-          >
-            {{ threat.severity }}
-          </span>
-        </div>
-
-        <div class="threat-details">
-          <p>
-            <strong>Rule:</strong>
-            {{ threat.rule_id }}
-          </p>
-
-          <p>
-            <strong>Source IP:</strong>
-            {{ threat.source_ip }}
-          </p>
-
-          <p>
-            <strong>Failed attempts:</strong>
-            {{ threat.attempts ?? 'N/A' }}
-          </p>
-
-          <p>
-            <strong>Status:</strong>
-            <span
-              :class="{
-                'status-neutralized':
-                  threat.status === 'NEUTRALIZED (SIMULATED)'
-              }"
-            >
-              {{ threat.status }}
-            </span>
-          </p>
-        </div>
-
-        <!-- EVIDENCE VIEWER -->
-        <details class="evidence-panel">
-
-          <summary>
-            <span>🔍 VIEW EVIDENCE</span>
-
-            <span class="evidence-count">
-              {{ threat.evidence?.length ?? 0 }} events
-            </span>
-          </summary>
-
-          <div class="evidence-content">
-
-            <p class="evidence-description">
-              {{
-                threat.description ||
-                'No detection description available.'
-              }}
-            </p>
-
-            <div class="evidence-times">
-              <p>
-                <strong>First seen:</strong>
-                {{ formatTimestamp(threat.first_seen) }}
-              </p>
-
-              <p>
-                <strong>Last seen:</strong>
-                {{ formatTimestamp(threat.last_seen) }}
-              </p>
+      <div class="workspace">
+        <div class="main-column">
+          <section class="panel input-panel" aria-labelledby="input-title">
+            <div class="panel-heading"><div><h2 id="input-title">Run a security scan</h2><p>Start with a sample or bring your own event data.</p></div><span class="step-tag">01 / INPUT</span></div>
+            <div class="scenario-grid">
+              <button class="scenario" :class="{ selected: scenario === 'suspicious' }" :disabled="busy" @click="loadScenario('suspicious')"><span class="scenario-symbol suspicious" aria-hidden="true">!</span><strong>Suspicious logins</strong><small>Five failed attempts from one IP.</small><span class="choice-label">{{ scenario === 'suspicious' ? 'Selected' : 'Load sample' }}</span></button>
+              <button class="scenario" :class="{ selected: scenario === 'clean' }" :disabled="busy" @click="loadScenario('clean')"><span class="scenario-symbol clean" aria-hidden="true">✓</span><strong>Normal activity</strong><small>Successful logins from different IPs.</small><span class="choice-label">{{ scenario === 'clean' ? 'Selected' : 'Load sample' }}</span></button>
             </div>
+            <details class="advanced"><summary>Advanced input <span>Edit event JSON</span></summary><div class="editor"><label for="events">Security events</label><p>Required fields: timestamp, source_ip, and event_type.</p><textarea id="events" v-model="eventsText" :disabled="busy" spellcheck="false" rows="12" @input="scenario = 'custom'"></textarea></div></details>
+            <div class="scan-action"><span>{{ eventCount === null ? 'Invalid JSON' : `${eventCount} events ready` }}</span><button class="primary" :disabled="busy" @click="scan"><span v-if="phase === 'scanning'" class="spinner" aria-hidden="true"></span>{{ phase === 'scanning' ? 'Scanning…' : busy ? 'Simulation running…' : 'Start scan' }}<span v-if="!busy" aria-hidden="true">↗</span></button></div>
+            <div v-if="error" class="error" role="alert"><strong>Scan could not complete</strong><p>{{ error }}</p></div>
+          </section>
 
-            <div
-              v-if="threat.evidence?.length"
-              class="evidence-table-wrapper"
-            >
-              <table class="evidence-table">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Source IP</th>
-                    <th>Username</th>
-                    <th>Event Type</th>
-                  </tr>
-                </thead>
+          <section class="panel findings-panel" aria-labelledby="findings-title">
+            <div class="panel-heading"><div><h2 id="findings-title">Scan findings</h2><p>Review the latest result before deciding what to do next.</p></div><button v-if="result" class="text-button" @click="downloadReport">Export JSON ↓</button></div>
+            <div v-if="!result" class="empty-state"><span class="empty-icon" aria-hidden="true">⌕</span><h3>{{ phase === 'scanning' ? 'Analysis in progress' : 'Your findings will appear here' }}</h3><p>{{ phase === 'scanning' ? 'Waiting for the detection API to return results.' : 'Choose a scenario above, then select Start scan.' }}</p></div>
+            <template v-else>
+              <div class="result-banner" :class="{ flagged: threatCount > 0 }"><span class="status-dot" :class="{ verified: !threatCount }"></span><strong>{{ threatCount > 0 ? `${threatCount} threat${threatCount === 1 ? '' : 's'} detected` : 'No threats detected by this rule' }}</strong><span>{{ result.status || 'SCAN COMPLETED' }}</span></div>
+              <div v-if="threats.length" class="table-scroll"><table><thead><tr><th>Finding</th><th>Source IP</th><th>Severity</th><th>Attempts</th></tr></thead><tbody><tr v-for="(threat, index) in threats" :key="index"><td><strong>{{ threat.rule_name || threat.name || threat.title || 'Detected threat' }}</strong><small>{{ threat.rule_id || threat.id || 'Detection rule' }}</small></td><td class="mono">{{ threat.source_ip || '—' }}</td><td><span class="severity-pill" :class="severityClass(threat.severity)">{{ threat.severity || 'Unknown' }}</span></td><td>{{ threat.attempts ?? '—' }}</td></tr></tbody></table></div>
+              <p v-else class="no-findings">{{ threatCount ? 'The API reported threats without individual finding details. See the full result below.' : 'No repeated failed-login pattern was found in the submitted events.' }}</p>
+              <details class="raw-result"><summary>View full API result</summary><pre>{{ JSON.stringify(result, null, 2) }}</pre></details>
+            </template>
+          </section>
+        </div>
 
-                <tbody>
-                  <tr
-                    v-for="(event, eventIndex) in threat.evidence"
-                    :key="eventIndex"
-                  >
-                    <td>
-                      {{ formatTimestamp(event.timestamp) }}
-                    </td>
-
-                    <td>
-                      {{ event.source_ip }}
-                    </td>
-
-                    <td>
-                      {{ event.username }}
-                    </td>
-
-                    <td>
-                      <span class="event-badge">
-                        {{ event.event_type }}
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <p
-              v-else
-              class="no-evidence"
-            >
-              No supporting events available.
-            </p>
-
-          </div>
-        </details>
-        <!-- END EVIDENCE VIEWER -->
-
-        <!-- ATOMIC BREATH IS OUTSIDE <details> -->
-        <button
-          class="atomic-button"
-          :disabled="
-            scanning ||
-            threat.status !== 'DETECTED'
-          "
-          @click="atomicBreath(threat)"
-        >
-          ☢️ ATOMIC BREATH
-        </button>
-
+        <aside class="side-column">
+          <section class="panel defense-panel" aria-labelledby="defense-title">
+            <div class="panel-heading"><h2 id="defense-title">Defense activity</h2><span class="live-tag">{{ current.label }}</span></div>
+            <div class="mascot-stage"><img :key="phase" :src="`/mascots/${current.image}`" :alt="current.title" /></div>
+            <div class="state-copy" aria-live="polite"><h3>{{ current.title }}</h3><p>{{ current.description }}</p></div>
+            <div class="workflow" aria-label="Security workflow"><span :class="{ active: ['idle', 'scanning'].includes(phase) }">Scan</span><i aria-hidden="true">→</i><span :class="{ active: ['detected', 'clean'].includes(phase) }">Review</span><i aria-hidden="true">→</i><span :class="{ active: ['responding', 'healing', 'contained'].includes(phase) }">Simulate</span></div>
+            <div class="response-box"><div><strong>Response demonstration</strong><span class="simulation-tag">SIMULATION</span></div><p>Explore containment and recovery. This demo does not block IPs or remove malware.</p><button class="secondary" :disabled="busy || !['detected', 'contained'].includes(phase)" @click="simulateResponse">{{ phase === 'contained' ? 'Replay response demo' : 'Simulate response' }}</button></div>
+          </section>
+          <section class="panel activity-panel"><div class="panel-heading"><h2>Session activity</h2><span class="step-tag">LIVE LOG</span></div><p v-if="!activity.length" class="quiet">No activity yet. Your scan history for this session will appear here.</p><ol v-else class="activity-list" aria-live="polite"><li v-for="(item, index) in activity" :key="`${item.time}-${index}`"><span class="log-dot" aria-hidden="true"></span><div><p>{{ item.message }}</p><time>{{ item.time }}</time></div></li></ol></section>
+          <section class="rule-note"><span class="eyebrow">WHAT THIS DETECTOR DOES</span><h3>A focused view of login activity</h3><p>Cyberzilla looks for repeated failed logins from the same source IP. Findings come from FastAPI; the kaiju illustrate each stage.</p></section>
+        </aside>
       </div>
-    </section>
-
-    <!-- FOOTER -->
-    <footer>
-      CYBERZILLA v0.5 · ATOMIC DEFENSE SYSTEM
-      <br />
-      SAMPLE LOG ANALYSIS · SIMULATED DEFENSIVE RESPONSE
-    </footer>
-
+      <footer><span>Cyberzilla <span class="footer-dot">/</span> Built by Marco Aguilar</span><span>Detection API · Visual response demo</span></footer>
+    </main>
   </div>
 </template>
 
-<style>
-/* GENERAL */
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: #080f1d;
-  color: #e8f4ff;
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-button {
-  background: #1789d4;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 12px 20px;
-  font-weight: bold;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-button:hover:not(:disabled) {
-  background: #36b6ff;
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.dashboard {
-  max-width: 1300px;
-  margin: auto;
-  padding: 30px;
-}
-
-/* HEADER */
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  border-bottom: 1px solid #27435c;
-  padding-bottom: 20px;
-}
-
-.header h1 {
-  color: #63d8ff;
-  margin: 0 0 8px;
-  letter-spacing: 2px;
-}
-
-.header p {
-  color: #8baabe;
-  letter-spacing: 3px;
-  font-size: 12px;
-  margin: 0;
-}
-
-.status {
-  color: #68e7b0;
-  background: #123a35;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: bold;
-  text-align: center;
-}
-
-.status-danger {
-  color: #ffaaaa;
-  background: #512b35;
-}
-
-.status-error {
-  color: #ffd1d1;
-  background: #632b2b;
-}
-
-/* HERO / MASCOTS */
-
-.hero {
-  display: flex;
-  align-items: center;
-  gap: 40px;
-  background: #111f33;
-  padding: 40px;
-  border-radius: 15px;
-  margin-top: 30px;
-  min-height: 350px;
-}
-
-.mascot-container {
-  width: 350px;
-  min-width: 250px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.mascot-image {
-  width: 100%;
-  max-height: 320px;
-  object-fit: contain;
-  filter: drop-shadow(0 0 15px #1789d455);
-}
-
-.mascot-image.monitoring {
-  animation: breathe 2s ease-in-out infinite alternate;
-}
-
-.mascot-image.scanning {
-  animation: fly 1.2s ease-in-out infinite alternate;
-}
-
-.mascot-image.atomic {
-  animation: atomicPulse 0.5s ease-in-out infinite alternate;
-}
-
-.mascot-image.defeated {
-  animation: defeated 0.6s ease-out;
-}
-
-.hero-content {
-  flex: 1;
-}
-
-.hero-content h2 {
-  color: #6fe0ff;
-  margin-top: 0;
-}
-
-.hero-content p {
-  color: #d8eaf5;
-  line-height: 1.6;
-}
-
-.hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.secondary {
-  background: #304457;
-}
-
-.error-message {
-  color: #ffaaaa !important;
-  background: #512b35;
-  padding: 12px;
-  border-radius: 8px;
-  margin-top: 20px;
-}
-
-/* MASCOT ANIMATIONS */
-
-@keyframes breathe {
-  from {
-    transform: scale(1);
-  }
-
-  to {
-    transform: scale(1.04);
-  }
-}
-
-@keyframes fly {
-  from {
-    transform: translateY(10px);
-  }
-
-  to {
-    transform: translateY(-15px);
-  }
-}
-
-@keyframes atomicPulse {
-  from {
-    transform: scale(1);
-    filter: drop-shadow(0 0 10px #1789d4);
-  }
-
-  to {
-    transform: scale(1.08);
-    filter: drop-shadow(0 0 30px #00d9ff);
-  }
-}
-
-@keyframes defeated {
-  from {
-    transform: translateY(-20px);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-/* STATISTICS */
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-  margin-top: 30px;
-}
-
-.stat-card {
-  background: #111f33;
-  border-radius: 12px;
-  padding: 25px;
-}
-
-.stat-card h3 {
-  font-size: 12px;
-  color: #8baabe;
-  margin-top: 0;
-}
-
-.stat-card strong {
-  font-size: 32px;
-  color: #63d8ff;
-}
-
-.stat-card .small {
-  font-size: 15px;
-  overflow-wrap: anywhere;
-}
-
-/* THREAT INTELLIGENCE */
-
-.alerts {
-  background: #111f33;
-  border-radius: 12px;
-  padding: 25px;
-  margin-top: 30px;
-}
-
-.section-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-  margin-bottom: 20px;
-}
-
-.section-heading h2 {
-  margin: 0 0 8px;
-}
-
-.section-heading p {
-  color: #8baabe;
-  font-size: 13px;
-  margin: 0;
-}
-
-.alert-count {
-  background: #512b35;
-  color: #ffaaaa;
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: bold;
-  white-space: nowrap;
-}
-
-.empty {
-  padding: 30px;
-  color: #8baabe;
-  text-align: center;
-}
-
-.threat-card {
-  background: #1a2c42;
-  border-left: 4px solid #ff5959;
-  padding: 25px;
-  border-radius: 8px;
-  margin-top: 15px;
-}
-
-.threat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-}
-
-.threat-header h3 {
-  margin: 0;
-}
-
-.severity {
-  background: #632b2b;
-  color: #ff9999;
-  padding: 7px 10px;
-  border-radius: 5px;
-  font-size: 13px;
-  font-weight: bold;
-}
-
-.severity-medium {
-  background: #58411d;
-  color: #ffd17d;
-}
-
-.severity-low {
-  background: #16443b;
-  color: #89e6c1;
-}
-
-.threat-details {
-  margin-top: 22px;
-}
-
-.threat-details p {
-  margin: 12px 0;
-  overflow-wrap: anywhere;
-}
-
-.threat-details strong {
-  color: #b4d1e4;
-}
-
-.status-neutralized {
-  color: #89e6c1;
-}
-
-/* EVIDENCE VIEWER */
-
-.evidence-panel {
-  margin-top: 24px;
-  margin-bottom: 18px;
-  border: 1px solid #34516d;
-  border-radius: 10px;
-  background: #101d2e;
-  overflow: hidden;
-}
-
-.evidence-panel summary {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  cursor: pointer;
-  color: #70deff;
-  font-weight: bold;
-  list-style: none;
-}
-
-.evidence-panel summary::-webkit-details-marker {
-  display: none;
-}
-
-.evidence-panel summary:hover {
-  background: #1b344c;
-}
-
-.evidence-panel[open] summary {
-  border-bottom: 1px solid #34516d;
-}
-
-.evidence-count {
-  color: #9eb7ca;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.evidence-content {
-  padding: 18px;
-}
-
-.evidence-description {
-  color: #d8eaf5;
-  line-height: 1.6;
-  margin-top: 0;
-}
-
-.evidence-times {
-  color: #a8c0d2;
-  font-size: 13px;
-  margin: 16px 0;
-}
-
-.evidence-times p {
-  margin: 8px 0;
-}
-
-.evidence-table-wrapper {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.evidence-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 13px;
-}
-
-.evidence-table th,
-.evidence-table td {
-  padding: 12px;
-  border-bottom: 1px solid #294057;
-  white-space: nowrap;
-}
-
-.evidence-table th {
-  color: #70deff;
-  background: #172c42;
-}
-
-.evidence-table td {
-  color: #dcecf7;
-}
-
-.evidence-table tbody tr:hover {
-  background: #1b344c;
-}
-
-.event-badge {
-  display: inline-block;
-  padding: 5px 8px;
-  border-radius: 5px;
-  background: #512b35;
-  color: #ffaaaa;
-  font-size: 11px;
-  font-weight: bold;
-}
-
-.no-evidence {
-  color: #9eb7ca;
-}
-
-/* ATOMIC BREATH BUTTON */
-
-.atomic-button {
-  background: #087bb5;
-  margin-top: 4px;
-}
-
-.atomic-button:hover:not(:disabled) {
-  background: #00a7eb;
-}
-
-/* FOOTER */
-
-footer {
-  margin-top: 40px;
-  text-align: center;
-  color: #65839a;
-  font-size: 12px;
-  line-height: 2;
-}
-
-/* RESPONSIVE */
-
-@media (max-width: 900px) {
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 700px) {
-  .dashboard {
-    padding: 16px;
-  }
-
-  .header,
-  .hero {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .hero {
-    padding: 24px;
-    gap: 20px;
-  }
-
-  .mascot-container {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .mascot-image {
-    max-height: 260px;
-  }
-
-  .stats {
-    grid-template-columns: 1fr;
-  }
-
-  .section-heading,
-  .threat-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .alerts,
-  .threat-card {
-    padding: 18px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mascot-image {
-    animation: none !important;
-  }
-}
+<style scoped>
+:global(*) { box-sizing: border-box; }
+:global(body) { margin: 0; background: #0b1120; color: #edf3fa; font-family: Inter, 'Segoe UI', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+:global(#app) { max-width: none; margin: 0; padding: 0; text-align: left; }
+button, textarea { font: inherit; }
+button { cursor: pointer; transition: border-color .15s, background .15s; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button:focus-visible, a:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 3px solid #67dce8; outline-offset: 4px; }
+a { color: inherit; }
+.topbar { min-height: 86px; display: flex; justify-content: space-between; align-items: center; padding: 18px max(24px, calc((100vw - 1280px) / 2)); border-bottom: 1px solid #253047; background: #0f1728; }
+.brand { display: flex; gap: 12px; align-items: center; text-decoration: none; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #418b9d; border-radius: 12px; color: #86e8e9; background: #173142; font-size: 15px; font-weight: 800; letter-spacing: -1px; }
+.brand strong { display: block; font-size: 19px; letter-spacing: -.5px; }
+.brand small { display: block; color: #a5b4c8; font-size: 11px; margin-top: 3px; }
+.portfolio-tag { color: #a5b4c8; font-size: 12px; border: 1px solid #334159; padding: 7px 12px; border-radius: 30px; }
+main { max-width: 1328px; margin: auto; padding: 40px 24px 20px; }
+.page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 30px; }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.8px; color: #7ddbe4; }
+h1 { font-size: clamp(28px, 3vw, 39px); line-height: 1.2; letter-spacing: -1.4px; font-weight: 650; margin: 12px 0; }
+h1 span { color: #9aaec5; }
+p { line-height: 1.6; }
+.page-heading p { color: #a5b4c8; font-size: 13px; margin: 0; }
+.connection { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #2a3850; border-radius: 10px; flex-shrink: 0; }
+.connection strong { font-size: 12px; display: block; }
+.connection small { display: block; margin-top: 4px; font-size: 11px; color: #a5b4c8; }
+.status-dot { width: 7px; height: 7px; display: inline-block; background: #a3b0c2; border-radius: 50%; flex-shrink: 0; }
+.status-dot.verified { background: #79deb6; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 24px; }
+.metric { border: 1px solid #29364c; border-radius: 12px; padding: 20px; background: #111b2d; }
+.metric > span { display: block; font-size: 12px; color: #b1bed0; }
+.metric > strong { display: block; font-size: 33px; font-weight: 600; letter-spacing: -1px; margin: 11px 0; }
+.metric > strong.severity-value, .metric > strong.time-value { font-size: 23px; line-height: 40px; }
+.metric small { color: #9aaec5; font-size: 10px; }
+.warning-text { color: #ffc38a; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+.main-column, .side-column { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.panel { border: 1px solid #2a3750; border-radius: 14px; background: #111b2d; overflow: hidden; }
+.input-panel, .defense-panel, .activity-panel { padding: 24px; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
+h2 { margin: 0; font-size: 16px; letter-spacing: -.3px; font-weight: 600; }
+.panel-heading p { margin: 7px 0 0; font-size: 12px; color: #a5b4c8; }
+.step-tag { color: #9aaec5; font-size: 9px; font-weight: 600; letter-spacing: 1px; white-space: nowrap; }
+.scenario-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.scenario { text-align: left; background: #0d1626; border: 1px solid #344259; border-radius: 10px; padding: 18px; color: #edf3fa; }
+.scenario:hover:not(:disabled) { border-color: #65c1cf; }
+.scenario.selected { border-color: #68ccd6; background: #132838; }
+.scenario-symbol { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; font-weight: bold; margin-bottom: 14px; }
+.scenario-symbol.suspicious { background: #443427; color: #ffbf8a; }
+.scenario-symbol.clean { background: #173b36; color: #83e4bc; }
+.scenario strong { display: block; font-size: 13px; }
+.scenario small { display: block; color: #b0bfd1; font-size: 11px; margin: 7px 0 16px; line-height: 1.5; }
+.choice-label { font-size: 10px; color: #84dce3; }
+.advanced { margin-top: 22px; border: 1px solid #2c3b53; border-radius: 8px; }
+summary { cursor: pointer; color: #c3d0e1; font-size: 12px; padding: 14px; }
+.advanced summary span { float: right; color: #9aaec5; font-size: 10px; }
+.editor { padding: 0 14px 14px; }
+.editor label { font-size: 12px; display: block; margin-top: 5px; }
+.editor p { font-size: 10px; color: #a5b4c8; }
+textarea { width: 100%; padding: 14px; background: #0b1220; border: 1px solid #35465f; border-radius: 6px; font: 12px/1.6 Consolas, monospace; color: #c1e1ed; resize: vertical; }
+.scan-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 22px; }
+.scan-action > span { color: #a5b4c8; font-size: 11px; }
+.primary { display: flex; align-items: center; justify-content: center; gap: 20px; background: #85e2e7; border: 1px solid #85e2e7; color: #092431; border-radius: 8px; padding: 12px 20px; font-size: 12px; font-weight: 700; }
+.primary:hover:not(:disabled) { background: #b1f4f4; }
+.error { border: 1px solid #875160; border-radius: 8px; padding: 15px; margin-top: 18px; color: #ffd3d8; background: #34212f; overflow-wrap: anywhere; font-size: 12px; }
+.error p { margin: 7px 0 0; }
+.findings-panel > .panel-heading { padding: 24px 24px 0; }
+.text-button { background: none; border: 0; padding: 4px; color: #85dce6; font-size: 11px; white-space: nowrap; }
+.empty-state { text-align: center; padding: 34px 20px 50px; }
+.empty-icon { display: grid; place-items: center; width: 46px; height: 46px; background: #1b2a40; border: 1px solid #344259; border-radius: 12px; margin: 0 auto 16px; color: #91c2d7; font-size: 30px; }
+h3 { font-size: 14px; font-weight: 600; margin: 0; }
+.empty-state p { color: #a5b4c8; font-size: 12px; }
+.result-banner { margin: 0 24px 18px; display: flex; align-items: center; gap: 9px; border: 1px solid #36574f; background: #17302e; border-radius: 8px; padding: 12px; font-size: 11px; }
+.result-banner.flagged { border-color: #6e5135; background: #332b25; }
+.result-banner.flagged .status-dot { background: #ffc38a; }
+.result-banner > span:last-child { margin-left: auto; font-size: 9px; color: #c2cbd6; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; text-align: left; border-collapse: collapse; font-size: 11px; }
+th { color: #a5b4c8; font-size: 10px; font-weight: 500; background: #0f192a; }
+th, td { padding: 15px 20px; border-top: 1px solid #29374f; }
+td strong { display: block; font-size: 11px; min-width: 145px; line-height: 1.5; }
+td small { display: block; color: #9aaec5; margin-top: 4px; }
+.mono { font-family: Consolas, monospace; white-space: nowrap; }
+.severity-pill { display: inline-block; font-size: 9px; font-weight: 700; padding: 5px 8px; border-radius: 4px; background: #24324b; }
+.high, .critical { color: #ffbc93; }
+.severity-pill.high, .severity-pill.critical { background: #453126; }
+.medium { color: #f0db87; }
+.severity-pill.medium { background: #3a3524; }
+.low { color: #87e0c0; }
+.neutral { color: #c3d0e1; }
+.no-findings { margin: 20px 24px; color: #b0c0d2; font-size: 12px; }
+.raw-result { margin: 10px 24px 20px; border-top: 1px solid #2a3750; }
+.raw-result summary { padding: 14px 0; font-size: 11px; color: #a5b4c8; }
+pre { overflow: auto; max-height: 360px; padding: 14px; border-radius: 8px; background: #0b1220; font: 11px/1.6 Consolas, monospace; color: #c1e1ed; }
+.live-tag { color: #9de4e9; font-size: 9px; border: 1px solid #345366; border-radius: 20px; padding: 5px 8px; white-space: nowrap; }
+.mascot-stage { background: #101827; border-radius: 10px; display: flex; justify-content: center; align-items: center; height: 192px; overflow: hidden; margin-bottom: 20px; }
+.mascot-stage img { width: 100%; max-width: 245px; height: 180px; object-fit: contain; image-rendering: pixelated; }
+.state-copy { min-height: 92px; }
+.state-copy p { font-size: 11px; color: #a5b4c8; margin: 8px 0 0; }
+.workflow { display: flex; align-items: center; gap: 8px; justify-content: space-between; border-top: 1px solid #2a3750; padding: 18px 0; margin-top: 14px; font-size: 10px; color: #9aaec5; }
+.workflow i { font-style: normal; }
+.workflow .active { color: #9ef2ec; background: #1a3844; border-radius: 4px; padding: 5px 9px; }
+.response-box { padding: 15px; background: #0d1727; border: 1px solid #2a3750; border-radius: 9px; }
+.response-box > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.response-box strong { font-size: 11px; }
+.simulation-tag { font-size: 8px; color: #b7a9dc; letter-spacing: .5px; }
+.response-box p { font-size: 10px; color: #a5b4c8; }
+.secondary { width: 100%; padding: 10px; background: #1b2b40; border: 1px solid #40536d; border-radius: 6px; color: #e3ecf5; font-size: 11px; font-weight: 600; }
+.secondary:hover:not(:disabled) { border-color: #7ec9d6; }
+.quiet { color: #a5b4c8; font-size: 11px; margin-bottom: 0; }
+.activity-list { list-style: none; padding: 0; margin: 0; }
+.activity-list li { display: flex; gap: 12px; padding: 11px 0; border-bottom: 1px solid #26334a; }
+.activity-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.log-dot { display: block; width: 5px; height: 5px; border-radius: 50%; background: #7acdd9; margin-top: 7px; flex-shrink: 0; }
+.activity-list p { font-size: 10px; margin: 0 0 4px; color: #c8d5e5; }
+.activity-list time { font-size: 9px; color: #9aaec5; }
+.rule-note { padding: 2px 8px; }
+.rule-note h3 { font-size: 12px; margin-top: 10px; }
+.rule-note p { font-size: 11px; color: #a5b4c8; }
+footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 32px; padding-top: 20px; border-top: 1px solid #253047; color: #9aaec5; font-size: 10px; }
+.footer-dot { padding: 0 8px; color: #5c728c; }
+.spinner { height: 12px; width: 12px; border: 2px solid #21616b; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 1050px) { .workspace { grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; } .input-panel, .defense-panel, .activity-panel { padding: 18px; } .metric { padding: 16px; } }
+@media (max-width: 820px) { .workspace { grid-template-columns: 1fr; } .side-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } .rule-note { grid-column: 1 / -1; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .page-heading { align-items: flex-start; } }
+@media (max-width: 560px) { main { padding: 28px 16px 18px; } .topbar { padding: 16px; } .portfolio-tag { display: none; } .page-heading { flex-direction: column; gap: 18px; } .connection { width: 100%; } .metrics { gap: 10px; } .metric small { font-size: 9px; } .side-column { display: flex; } .scenario-grid { grid-template-columns: 1fr; } .panel-heading { align-items: flex-start; } .step-tag { display: none; } .scan-action { align-items: stretch; flex-direction: column; } footer { flex-direction: column; } .result-banner { flex-wrap: wrap; } .result-banner > span:last-child { width: 100%; margin-left: 16px; } }
+@media (prefers-reduced-motion: reduce) { .mascot-stage { display: none; } .spinner { animation: none; } button { transition: none; } }
 </style>
