@@ -1,168 +1,227 @@
+<p align="center">
+  <img src="docs/assets/tato-banner.svg" alt="TaTo by Marco Aguilar — Make security signals understandable" width="100%" />
+</p>
 
-# CYBERZILLA 🦖
-### Atomic Defense System
+<p align="center">
+  <strong>Authentication events. Clear evidence. Better questions.</strong><br />
+  A cybersecurity learning project by Marco Aguilar.
+</p>
 
-A beginner-friendly cybersecurity project that analyzes authentication logs, detects suspicious login patterns, and displays investigable security alerts in a kaiju-inspired dashboard.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#detection-rules">Detection rules</a> ·
+  <a href="docs/BEGINNER_GUIDE.md">Beginner guide</a> ·
+  <a href="#roadmap">Roadmap</a>
+</p>
 
-![Cyberzilla dashboard](docs/screenshots/dashboard.png)
+---
 
-> **Project scope:** Cyberzilla currently analyzes synthetic authentication events. Its **ATOMIC BREATH** response is a visual simulation; it does not block IP addresses, disable accounts, remove malware, or protect a live system.
+## Meet TaTo
 
-## Features
+**TaTo helps explain how security monitoring turns login records into findings worth investigating.** It uses Python rules to look for repeated authentication failures and a successful login following repeated failures, then returns the evidence through a FastAPI service to a Vue dashboard.
 
-- **Authentication log analysis:** Processes sample login events using a Python detection engine.
-- **Rule-based threat detection:** Identifies repeated failed logins and successful logins following repeated failures.
-- **Evidence viewer:** Displays the events associated with each alert.
-- **Interactive dashboard:** Shows scan results, event counts, alert details, and simulated responses.
-- **REST API:** Connects the Vue frontend to the Python detection engine through FastAPI.
-- **Automated tests:** Uses pytest to check detection behavior and GitHub Actions to run tests on pushes and pull requests.
+Imagine five failed sign-in attempts from one IP address in less than a minute. That may be someone mistyping a password—or activity worth investigating. TaTo highlights the pattern and shows the records behind it. The analyst still decides what it means.
 
-## Detection Rules
+The name comes from my family: **TaTo is how my daughter refers to her brother, Anthony.** The new visual direction features TaTo and Emeni, characters inspired by my children, with blue and pink accents.
 
-| Rule | Detection logic | Why it matters |
-| --- | --- | --- |
-| **CZ-001** | Five failed login attempts from the same source IP within 60 seconds. | Highlights repeated authentication failures that may warrant investigation. |
-| **CZ-002** | Five failed attempts followed by a successful login for the same username and source IP within 60 seconds. | Highlights a login sequence that may warrant further investigation. A successful login alone does not prove account compromise. |
+> **Migration status:** This repository is transitioning from **Cyberzilla to TaTo**. The documentation introduces the new identity; the checked-in application still uses the earlier name, kaiju artwork, and `CZ-` rule IDs. The newer Windows-event workflow is not included in this repository yet. The instructions below describe the code that is actually checked in.
 
-The included sample dataset contains **seven synthetic authentication events** and produces **two alerts**.
+## At a glance
 
-## Technology Stack
-
-| Component | Technology |
+| Area | What is available here |
 | --- | --- |
-| Detection engine | Python |
-| API | FastAPI and Uvicorn |
-| Dashboard | Vue and Vite |
-| Tests | pytest |
-| Continuous integration | GitHub Actions |
+| Input | A bundled JSON file with seven synthetic login events |
+| Detection | Two Python rules using a 60-second window |
+| Evidence | Timestamps, source IPs, usernames, and matching events |
+| API | FastAPI with a health check and a sample scan endpoint |
+| Interface | Vue dashboard, JSON result viewer, report export, and response animation |
+| Validation | Five existing pytest tests and a GitHub Actions workflow |
+| Response | Visual demonstration only; no firewall or account changes |
 
-## How It Works
+## What you can explore
 
-```text
-Synthetic authentication logs (JSON)
-                 |
-                 v
-       Python detection engine
-          CZ-001 / CZ-002
-                 |
-                 v
-        FastAPI: POST /api/scan
-                 |
-                 v
-          Vue dashboard
-                 |
-                 v
-    Alerts + evidence + simulated
-          ATOMIC BREATH response
+- **Follow an authentication sequence:** See how individual records form a suspicious pattern.
+- **Inspect supporting evidence:** Read the exact events associated with each rule match in the API result.
+- **Compare detection rules:** Understand why failures grouped by IP differ from failures grouped by IP and username.
+- **Read a structured report:** Explore the JSON returned by the backend or exported by the dashboard.
+- **Walk through a response demo:** Watch a simulated containment and recovery sequence while the findings remain available.
+
+> **Current input limitation:** The dashboard offers sample scenarios and a JSON editor, but the checked-in `POST /api/scan` handler does not consume that request body. It always analyzes `backend/sample_logs/auth_events.json`. Choosing “Normal activity” or pasting different events therefore does **not** change this backend's findings. To test different data in this version, edit the sample file as described in the [beginner guide](docs/BEGINNER_GUIDE.md#try-a-normal-login).
+
+## Detection rules
+
+The existing rule IDs are preserved so code, tests, and reports remain consistent during the rename.
+
+| Rule | What triggers it | Grouping | Result |
+| --- | --- | --- | --- |
+| **CZ-001** · Repeated failed logins | At least five failed logins within 60 seconds | Source IP, across usernames | HIGH finding with failure evidence |
+| **CZ-002** · Success after failures | A successful login with at least five preceding failures still inside the 60-second window | Same source IP **and** username | HIGH finding including the successful login |
+
+**Example:** Failures at `10:00:00`, `:10`, `:20`, `:30`, and `:40`, followed by a success at `:50`, from the same IP and username, trigger both rules.
+
+The bundled dataset adds one unrelated successful login, for **seven events and two findings**. Those two findings describe overlapping activity; they are not evidence of two separate attackers.
+
+Implementation details:
+
+- A gap of exactly 60 seconds remains inside the window; older events are removed.
+- CZ-001 emits at most one finding per IP per scan.
+- CZ-002 emits at most one finding per IP/username pair per scan. A success clears that account's current failure sequence.
+- `HIGH` is the rule's configured severity, not a probability that a compromise occurred.
+
+## How the pieces fit
+
+| Component | Responsibility | Source |
+| --- | --- | --- |
+| JSON dataset | Stores the authentication records used by the current API | [Sample events](backend/sample_logs/auth_events.json) |
+| Python detector | Validates and sorts file events, evaluates rules, builds evidence | [Detection engine](backend/detector.py) |
+| FastAPI service | Loads the sample file and returns scan findings | [API](backend/api.py) |
+| Vue dashboard | Requests a scan, displays results, exports JSON, animates a response demo | [Dashboard](frontend/src/App.vue) |
+| Vite development server | Serves the frontend and proxies `/api` to port 8000 | [Vite configuration](frontend/vite.config.js) |
+| pytest / GitHub Actions | Checks selected detection behaviors locally and in CI | [Tests](tests/test_detector.py) · [Workflow](.github/workflows/python-tests.yml) |
+
+The API and dashboard run as **two separate processes**. The Vite proxy connects them during local development.
+
+## Quick start
+
+These commands use **Windows PowerShell**. For explanations, troubleshooting, and a normal-login experiment, open the [beginner guide](docs/BEGINNER_GUIDE.md).
+
+### 1. Check your tools
+
+Install Git, Python **3.12** (the CI version), and a Node.js version supported by `frontend/package.json`: `^22.18.0 || >=24.12.0`. Node **24.12 or later in the 24.x series** is a straightforward choice.
+
+```powershell
+git --version
+python --version
+node --version
+npm --version
 ```
 
-When a user selects **START SCAN**, the frontend sends a request to the FastAPI endpoint. The backend analyzes the sample authentication events and returns the detection results. The dashboard then displays the alerts and their supporting evidence.
+### 2. Download the repository
 
-Selecting **ATOMIC BREATH** changes an alert's displayed status to simulate a defensive response. **No real security control is executed.**
+The repository URL still uses its original name. Clone it into a local folder named `TaTo`:
 
-## Run Locally
-
-### Prerequisites
-
-Install:
-
-- Python 3
-- Node.js and npm
-- Git
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/marcoas19/Cyberzilla.git
-cd Cyberzilla
+```powershell
+git clone https://github.com/marcoas19/Cyberzilla.git TaTo
+cd TaTo
 ```
 
-### 2. Set up the backend
+Already have a checkout? Use that folder instead. Preserve any local work before pulling changes; the local Windows-event implementation may be newer than this repository.
 
-Open a terminal in the repository's `backend` directory:
+### 3. Start the backend — terminal one
+
+From the `TaTo` folder:
 
 ```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Start the API **from the `backend` directory**:
+Keep this terminal open. Visit [the API documentation](http://127.0.0.1:8000/docs), expand **POST /api/scan**, select **Try it out**, then **Execute**. The sample scan should return `total_events: 7` and `threats_detected: 2`.
 
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn api:app --reload --port 8000
-```
+### 4. Start the dashboard — terminal two
 
-**Important:** This command assumes the FastAPI application is defined as `app` in `backend/api.py`. If your working application is defined in a different file, use that file's module name instead.
-
-Open the interactive API documentation:
-
-http://127.0.0.1:8000/docs
-
-Expand `POST /api/scan`, select **Try it out**, and then select **Execute** to test the endpoint.
-
-### 3. Start the frontend
-
-Keep the backend terminal running. Open a **second terminal** in the repository's `frontend` directory:
+Open another PowerShell window in the `TaTo` folder:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open the local URL displayed by Vite, typically:
+Open the address printed by Vite, usually [http://localhost:5173](http://localhost:5173). Select **Start scan**, inspect **View full API result**, and try **Export JSON** or **Simulate response**.
 
-http://localhost:5173/
+The interface still shows Cyberzilla during the migration. The response sequence is an animation; it does not alter the computer, source events, or detection result.
 
-Select **START SCAN** to analyze the sample logs and explore the alerts.
+### 5. Stop the application
 
-**Note:** The frontend currently calls the API at `http://127.0.0.1:8000`. Both services must be running on the same computer for this local setup to work.
+Press **Ctrl+C** in each terminal when finished.
 
-## Run the Tests
+## API reference
 
-From the repository's root directory, with the backend dependencies installed:
+| Method | Endpoint | Behavior |
+| --- | --- | --- |
+| GET | `/` | Reports the legacy application name, version, and online status |
+| POST | `/api/scan` | Analyzes the bundled JSON file; accepts no modeled event input |
+| GET | `/docs` | Opens FastAPI's interactive documentation |
+
+Test the scan from a third PowerShell terminal:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/scan |
+    ConvertTo-Json -Depth 10
+```
+
+| Response field | Meaning |
+| --- | --- |
+| `status` | Whether the scan completed |
+| `timestamp` | When the API generated the report, in UTC |
+| `total_events` | Number of records loaded from the sample file |
+| `threats_detected` | Number of rule findings, which may overlap |
+| `threats` | Findings, descriptions, timestamps, and supporting evidence |
+| `mode` | `SAMPLE_LOG_ANALYSIS` in the checked-in implementation |
+
+Within a finding, `attempts` counts failures. CZ-002's `evidence` also includes the successful login, so five attempts can have six evidence records. `response: NOT_EXECUTED` means no system response was performed.
+
+## Run the existing tests
+
+From the repository root, after installing the backend dependencies:
 
 ```powershell
 .\backend\.venv\Scripts\python.exe -m pytest -v
 ```
 
-The tests cover the detection rules, normal login activity, time-window behavior, and separation of events belonging to different users.
+The five tests cover repeated failures, success after failures, a normal login, failures outside the window, and separation of different usernames for CZ-002. They do not validate the complete dashboard/API integration or Windows log collection.
 
-GitHub Actions also runs the Python tests when changes are pushed or a pull request is opened.
+## Scope and limitations
 
-## Current Limitations
+TaTo is an educational security-monitoring prototype. Its findings are leads for investigation.
 
-Cyberzilla is an educational prototype, **not an antivirus, production SIEM, or active intrusion-prevention system**.
+- The checked-in API reads a sample file; live Windows Security log collection is not included yet.
+- A rule match does not prove an attack. No matches do not prove a system is safe.
+- The response demo does not block IPs, disable accounts, remove malware, or end sessions.
+- The file loader expects valid IP addresses, usernames, supported event types, and compatible ISO timestamps. Missing-IP accounting from the newer TaTo workflow is not implemented here.
+- Loopback addresses such as `127.0.0.1` and `::1` refer to the local computer; they do not identify a remote attacker. This detector does not label them separately.
+- The API has no authentication layer; this guide runs it on the local loopback address.
+- The dashboard keeps activity in the current browser session; there is no persistent investigation database.
 
-- It reads a sample JSON dataset rather than collecting live authentication logs.
-- Its rules identify patterns for investigation; they do not establish that an account has been compromised.
-- ATOMIC BREATH simulates a response in the dashboard without changing firewall rules, accounts, sessions, or the source logs.
-- The local frontend requires the backend API to be running separately.
+## Roadmap
 
-## Future Improvements
+| Stage | Next work |
+| --- | --- |
+| Identity | Bring the dashboard, API labels, assets, and repository name into the TaTo identity |
+| Input accuracy | Align the frontend request with an API that validates and analyzes submitted events |
+| Windows workflow | Sync and test the newer local event collector and TaTo report format |
+| Clear reporting | Explain skipped events, missing source IPs, loopback activity, and response actions |
+| Investigation | Add persistent scan history, analyst notes, and useful filters |
+| Demo polish | Replace the legacy screenshot and artwork with the completed TaTo dashboard |
 
-- Ingest authentication logs from a controlled lab environment.
-- Add more detection rules and configurable thresholds.
-- Persist scan history and analyst notes.
-- Improve alert filtering and investigation workflows.
-- Explore authorized, reversible response actions in a dedicated test environment.
+These are planned improvements, not features promised by the current checkout.
 
-## Author
+<details>
+<summary><strong>View the earlier Cyberzilla dashboard</strong></summary>
 
-**Marco Aguilar**
+This screenshot documents the earlier visual identity. It is not a preview of the finished TaTo design.
 
-Cybersecurity student building practical projects in Python, web development, security monitoring, and detection engineering.
+![Earlier Cyberzilla dashboard](docs/screenshots/dashboard.png)
 
+</details>
+
+## About the author
+
+**Marco Aguilar** — cybersecurity student building practical skills in Python, authentication-log analysis, detection engineering, API development, and clear security communication.
+
+This project gives me a way to connect the technical work with a simple question: **Can I explain why a finding appeared and show the evidence behind it?**
 
 ## Acknowledgments
 
-First and foremost, I thank my wife, Lady, for her love, patience, and encouragement throughout my journey in cybersecurity. Her thoughtful questions inspire me to keep learning and remind me that understanding technology also means being able to explain it clearly to others.
+To my wife, **Lady**: thank you for your love, patience, and encouragement. Your thoughtful questions push me to understand what I build and explain it clearly.
 
-To my children, Anthony and Emily: you are my greatest motivation to keep moving forward. Every challenge I overcome and every new skill I learn is part of my effort to build a better future for our family. I hope that one day you will look at this project and know that your dad never stopped learning or pursuing his dreams.
+To my children, **Anthony and Emily**: you are my greatest motivation to keep learning. TaTo and Emeni bring a little of our family into this project, and every step forward is part of building a better future for you.
 
-To my parents, Marco and Marta: thank you for your love, sacrifices, and unwavering support. You have encouraged me to pursue opportunities, believe in myself, and persevere even when the journey has been difficult. I carry your example with me in everything I do.
+To my parents, **Marco and Marta**: thank you for your love, sacrifices, and support. Your example helps me keep going through difficult moments and new challenges.
 
-I am also grateful to ChatGPT (Moka) for providing explanations, guidance, and debugging assistance throughout the development of Cyberzilla.
+I also thank **ChatGPT (Moka)** for explanations, debugging assistance, and documentation support during development. I remain responsible for reviewing, understanding, and validating the project.
 
-**Cyberzilla was designed, implemented, tested, and documented by Marco Aguilar as a hands-on cybersecurity learning project.**
+<p align="center"><strong>Built with curiosity. Inspired by family.</strong><br />TaTo · Marco Aguilar</p>

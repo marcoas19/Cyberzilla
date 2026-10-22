@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">TaTo by Marco Aguilar</title>
+  <desc id="desc">Dark navy banner with cyan and pink accents, a geometric shield, and the words Make security signals understandable.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1224"/><stop offset="1" stop-color="#172440"/></linearGradient>
+    <linearGradient id="accent"><stop stop-color="#74dcf5"/><stop offset="1" stop-color="#f7a0cf"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#93b9dc" stroke-opacity=".07"/></pattern>
+  </defs>
+  <rect width="1200" height="360" rx="24" fill="url(#bg)"/>
+  <rect width="1200" height="360" rx="24" fill="url(#grid)"/>
+  <rect x="52" y="49" width="5" height="262" rx="2" fill="url(#accent)"/>
+  <text x="86" y="79" fill="#86daed" font-family="Segoe UI,Arial,sans-serif" font-size="14" letter-spacing="4">SECURITY MONITORING · LEARNING IN PUBLIC</text>
+  <text x="82" y="181" fill="#f1f7ff" font-family="Segoe UI,Arial,sans-serif" font-size="94" font-weight="750" letter-spacing="-4">TaTo</text>
+  <text x="87" y="225" fill="#c6d6e9" font-family="Segoe UI,Arial,sans-serif" font-size="25">Make security signals understandable.</text>
+  <text x="87" y="284" fill="#93a9c8" font-family="Segoe UI,Arial,sans-serif" font-size="17">BY MARCO AGUILAR</text>
+  <g transform="translate(978 171)">
+    <circle r="116" fill="#142a44" stroke="#78d8ef" stroke-opacity=".18"/>
+    <circle r="93" fill="none" stroke="#f3a0cf" stroke-opacity=".25" stroke-dasharray="3 11"/>
+    <path d="M0-71 59-48V4C59 43 29 65 0 80-29 65-59 43-59 4V-48Z" fill="#0d1c32" stroke="url(#accent)" stroke-width="3"/>
+    <path d="M-30 5-12 23 32-25" fill="none" stroke="#83e4f2" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="-94" cy="-66" r="6" fill="#7ddcf0"/>
+    <circle cx="92" cy="70" r="6" fill="#f4a1d0"/>
+  </g>
+  <text x="978" y="318" text-anchor="middle" fill="#9bb1cb" font-family="Segoe UI,Arial,sans-serif" font-size="12" letter-spacing="3">OBSERVE · UNDERSTAND · REVIEW</text>
+</svg>
