@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/tato-banner.svg" alt="TaTo by Marco Aguilar — Make security signals understandable" width="100%" />
+  <img src="docs/assets/tato-banner.png" alt="TaTo — Threat Analysis &amp; Tracking Observatory — by Marco Aguilar. Marco's bird avatar leans on a cybersecurity shield." width="100%" />
 </p>
 
 <p align="center">
@@ -11,6 +11,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#detection-rules">Detection rules</a> ·
   <a href="docs/BEGINNER_GUIDE.md">Beginner guide</a> ·
+  <a href="#meet-the-birds">Meet the birds</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
 
@@ -22,9 +23,59 @@
 
 Imagine five failed sign-in attempts from one IP address in less than a minute. That may be someone mistyping a password—or activity worth investigating. TaTo highlights the pattern and shows the records behind it. The analyst still decides what it means.
 
-The name comes from my family: **TaTo is how my daughter refers to her brother, Anthony.** The new visual direction features TaTo and Emeni, characters inspired by my children, with blue and pink accents.
+**TaTo stands for Threat Analysis & Tracking Observatory.** Its name also comes from my family: **Tato is how my daughter refers to her brother, Anthony.** The acronym describes the project's direction: analyze suspicious patterns, keep track of the evidence, and give the user a clear place to review it.
 
 > **Migration status:** This repository is transitioning from **Cyberzilla to TaTo**. The documentation introduces the new identity; the checked-in application still uses the earlier name, kaiju artwork, and `CZ-` rule IDs. The newer Windows-event workflow is not included in this repository yet. The instructions below describe the code that is actually checked in.
+
+## Meet the birds
+
+The characters are inspired by my children, **Anthony and Emily**. They give the project a personal identity and make its security workflow easier to follow: **Tato explores; Emeni takes a closer look.**
+
+<table>
+  <tr>
+    <th align="center" width="50%">Tato · The curious explorer</th>
+    <th align="center" width="50%">Emeni · The determined reviewer</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/assets/tato.png" alt="Tato, a sky-blue bird with a backward black cap, waving to the user" width="260" /></td>
+    <td align="center"><img src="docs/assets/emeni.png" alt="Emeni, a pink bird with brown eyes and a black biker jacket" width="260" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Inspired by Anthony</strong><br />Adventurous, curious, and always ready to discover something.</td>
+    <td align="center"><strong>Inspired by Emily</strong><br />A small bird with a strong personality and a confident attitude.</td>
+  </tr>
+</table>
+
+### Tato: start with curiosity
+
+Tato brings Anthony's adventurous spirit into the project. His role in the TaTo design is **scanning**: he takes out his magnifying glass and explores the records, representing the first step in understanding what happened.
+
+In plain language: when you ask TaTo to scan, Tato represents the program looking through the events. The Python detector performs the actual rule checks.
+
+His **sky-blue feathers** carry the project's blue accent into the character. In this visual identity, blue represents observation, calm, and curiosity. His backward black cap adds a playful, ready-for-an-adventure look.
+
+### Emeni: pay attention to the evidence
+
+Emeni is inspired by Emily, her family nickname, and her strong personality. Her role in the TaTo design is **reviewing suspicious findings**: looking more closely at what Tato discovered and bringing the user's attention to the evidence.
+
+In plain language: Tato looks through the records; Emeni represents the moment to ask, “Why was this flagged?” A finding still needs a person's judgment, and Emeni does not independently confirm that an attack happened.
+
+Her **pink feathers** establish the project's second accent color and distinguish her review role from Tato's scanning role. The **black biker jacket** expresses confidence and determination. Pink is part of her identity, rather than an alert severity level.
+
+### One family, one visual identity
+
+| Visual element | Meaning in the TaTo design |
+| --- | --- |
+| Sky blue / cyan | Tato's curiosity and the scanning stage |
+| Pink | Emeni's personality and the review stage |
+| Dark background | A consistent workspace that lets the characters and evidence stand out |
+| Shield in the banner | The project's cybersecurity focus |
+| Marco's bird avatar | The creator welcoming the user, leaning on the shield and facing the viewer |
+| BY MARCO AGUILAR | The author behind the project and its development |
+
+These are design meanings chosen for this project. **The birds communicate workflow stages; alert labels and evidence communicate security findings.** A blue or pink character does not mean a computer is safe or compromised.
+
+> **Implementation status:** This section introduces the TaTo characters and their intended dashboard roles. The application checked into this repository still uses the earlier Cyberzilla artwork. Adding these portraits to the README does not replace the dashboard animations or add security controls.
 
 ## At a glance
 
